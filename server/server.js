@@ -14,7 +14,6 @@ const io = new Server(server, {
   transports: ['websocket', 'polling']
 });
 
-// Servir les fichiers statiques
 app.use(express.static(path.join(__dirname, '../client')));
 
 app.get('/', (req, res) => {
@@ -24,7 +23,7 @@ app.get('/', (req, res) => {
 const gameManager = new GameManager(io);
 
 io.on('connection', (socket) => {
-  console.log(`🔌 Joueur connecté: ${socket.id}`);
+  console.log('Joueur connecte: ' + socket.id);
 
   socket.on('find_game', (data) => {
     gameManager.addToQueue(socket, data.playerName);
@@ -51,12 +50,12 @@ io.on('connection', (socket) => {
   });
 
   socket.on('disconnect', () => {
-    console.log(`❌ Joueur déconnecté: ${socket.id}`);
+    console.log('Joueur deconnecte: ' + socket.id);
     gameManager.handleDisconnect(socket);
   });
 });
 
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, '0.0.0.0', () => {
-  console.log(`🚀 War Generation lancé sur le port ${PORT}`);
+  console.log('War Generation lance sur le port ' + PORT);
 });
