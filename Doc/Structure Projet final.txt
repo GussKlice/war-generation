@@ -1,0 +1,26 @@
+Wargeneration/
+├── client/
+│   ├── index.html
+│   ├── css/
+│   │   └── style.css
+│   ├── js/
+│   │   ├── main.js
+│   │   ├── game.js
+│   │   ├── renderer.js
+│   │   ├── ui.js
+│   │   ├── units.js
+│   │   ├── base.js
+│   │   └── network.js
+│   └── assets/
+│       ├── sprites/
+│       └── sounds/
+├── server/
+│   ├── server.js
+│   ├── gameManager.js
+│   ├── gameState.js
+│   ├── units.js
+│   └── combat.js
+├── shared/
+│   └── constants.js
+├── package.json
+└── README.md
