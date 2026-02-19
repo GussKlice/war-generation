@@ -3,128 +3,93 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Wargeneration</title>
+  <title>War Generation</title>
   <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
-  
-  <!-- ÉCRAN MENU -->
+
+  <!-- MENU -->
   <div id="menu-screen" class="screen active">
     <div class="menu-container">
-      <h1 class="game-title">⚔️ Wargeneration ⚔️</h1>
-      <div class="menu-form">
-        <input type="text" id="player-name" placeholder="Votre nom..." maxlength="20">
-        <button id="btn-play" class="btn-primary">🎮 Jouer</button>
+      <h1 class="game-title">⚔️ War Generation ⚔️</h1>
+      <input type="text" id="player-name" placeholder="Votre nom..." maxlength="20">
+
+      <button id="btn-play" class="btn-primary">🌐 Multijoueur 1v1</button>
+
+      <div class="solo-section">
+        <p class="solo-label">🤖 Jouer contre l'IA</p>
+        <div class="difficulty-buttons">
+          <button class="btn-diff" data-diff="easy">😊 Facile</button>
+          <button class="btn-diff" data-diff="normal">😐 Normal</button>
+          <button class="btn-diff" data-diff="hard">😠 Difficile</button>
+          <button class="btn-diff" data-diff="impossible">💀 Impossible</button>
+        </div>
       </div>
+
       <div id="queue-status" class="hidden">
         <div class="spinner"></div>
         <p>Recherche d'un adversaire...</p>
       </div>
     </div>
   </div>
-  
-  <!-- ÉCRAN JEU -->
+
+  <!-- JEU -->
   <div id="game-screen" class="screen">
-    <!-- HUD Supérieur -->
     <div id="hud-top">
-      <div id="player1-info" class="player-info left">
-        <span class="player-name" id="p1-name">Joueur 1</span>
-        <div class="hp-bar">
-          <div class="hp-fill" id="p1-hp-bar"></div>
-          <span class="hp-text" id="p1-hp-text">1000/1000</span>
-        </div>
-        <span class="age-badge" id="p1-age">Âge de Pierre</span>
+      <div class="player-info left">
+        <span class="pname" id="p1-name">J1</span>
+        <div class="hp-bar"><div class="hp-fill p1fill" id="p1-hp-bar"></div><span class="hp-text" id="p1-hp-text"></span></div>
+        <span class="age-badge p1badge" id="p1-age">Age 0</span>
       </div>
-      
-      <div id="game-timer">
-        <span id="timer-text">0:00</span>
-      </div>
-      
-      <div id="player2-info" class="player-info right">
-        <span class="player-name" id="p2-name">Joueur 2</span>
-        <div class="hp-bar">
-          <div class="hp-fill" id="p2-hp-bar"></div>
-          <span class="hp-text" id="p2-hp-text">1000/1000</span>
-        </div>
-        <span class="age-badge" id="p2-age">Âge de Pierre</span>
+      <div id="game-timer"><span id="timer-text">0:00</span></div>
+      <div class="player-info right">
+        <span class="pname p2n" id="p2-name">J2</span>
+        <div class="hp-bar"><div class="hp-fill p2fill" id="p2-hp-bar"></div><span class="hp-text" id="p2-hp-text"></span></div>
+        <span class="age-badge p2badge" id="p2-age">Age 0</span>
       </div>
     </div>
-    
-    <!-- Canvas du jeu -->
-    <canvas id="game-canvas" width="1200" height="400"></canvas>
-    
-    <!-- HUD Inférieur - Contrôles -->
+
+    <canvas id="game-canvas" width="1200" height="500"></canvas>
+
     <div id="hud-bottom">
-      <div id="gold-display">
-        💰 <span id="gold-amount">200</span>
-      </div>
-      
+      <div id="gold-display">💰 <span id="gold-amount">200</span></div>
+
       <div id="unit-buttons">
-        <button class="unit-btn" data-type="MELEE" id="btn-melee">
-          <span class="unit-icon">⚔️</span>
-          <span class="unit-name">Melee</span>
-          <span class="unit-cost">50g</span>
-          <span class="hotkey">[1]</span>
+        <button class="ubtn" data-type="MELEE" id="btn-melee">
+          <span class="uicon">⚔️</span><span class="uname">Melee</span><span class="ucost">50g</span><span class="hkey">[1]</span>
         </button>
-        <button class="unit-btn" data-type="RANGED" id="btn-ranged">
-          <span class="unit-icon">🏹</span>
-          <span class="unit-name">Ranged</span>
-          <span class="unit-cost">75g</span>
-          <span class="hotkey">[2]</span>
+        <button class="ubtn" data-type="RANGED" id="btn-ranged">
+          <span class="uicon">🏹</span><span class="uname">Ranged</span><span class="ucost">75g</span><span class="hkey">[2]</span>
         </button>
-        <button class="unit-btn" data-type="TANK" id="btn-tank">
-          <span class="unit-icon">🛡️</span>
-          <span class="unit-name">Tank</span>
-          <span class="unit-cost">150g</span>
-          <span class="hotkey">[3]</span>
+        <button class="ubtn" data-type="TANK" id="btn-tank">
+          <span class="uicon">🛡️</span><span class="uname">Tank</span><span class="ucost">150g</span><span class="hkey">[3]</span>
         </button>
       </div>
-      
-      <div id="action-buttons">
-        <button class="action-btn" id="btn-turret-0">
-          🗼 Tourelle 1
-          <span class="hotkey">[Q]</span>
-        </button>
-        <button class="action-btn" id="btn-turret-1">
-          🗼 Tourelle 2
-          <span class="hotkey">[W]</span>
-        </button>
-        <button class="action-btn" id="btn-turret-2">
-          🗼 Tourelle 3
-          <span class="hotkey">[E]</span>
-        </button>
+
+      <div id="turret-buttons">
+        <button class="tbtn" id="btn-turret-0">🔒 Slot 1 (50g)<span class="hkey">[Q]</span></button>
+        <button class="tbtn" id="btn-turret-1">🔒 Slot 2 (150g)<span class="hkey">[W]</span></button>
+        <button class="tbtn" id="btn-turret-2">🔒 Slot 3 (500g)<span class="hkey">[E]</span></button>
       </div>
-      
+
       <div id="special-buttons">
-        <button class="special-btn" id="btn-upgrade-age">
-          ⬆️ Évoluer
-          <span class="upgrade-cost" id="upgrade-cost">500g</span>
-          <span class="hotkey">[R]</span>
-        </button>
-        <button class="special-btn" id="btn-special">
-          💥 Spécial
-          <span class="upgrade-cost">500g</span>
-          <span class="hotkey">[F]</span>
-        </button>
+        <button class="sbtn" id="btn-upgrade-age">⬆️ Évoluer<span class="scost" id="upgrade-cost">500g</span><span class="hkey">[R]</span></button>
+        <button class="sbtn" id="btn-special">💥 Spécial<span class="scost">500g</span><span class="hkey">[F]</span></button>
       </div>
-      
-      <!-- Queue d'entraînement -->
-      <div id="training-queue">
-        <div class="queue-label">🔧 Entraînement:</div>
-        <div id="queue-items"></div>
-      </div>
+
+      <div id="training-queue"><span class="qlabel">🔧</span><div id="queue-items"></div></div>
     </div>
   </div>
-  
-  <!-- ÉCRAN FIN DE PARTIE -->
+
+  <!-- GAME OVER -->
   <div id="gameover-screen" class="screen">
-    <div class="gameover-container">
-      <h1 id="gameover-title">Victoire !</h1>
+    <div class="go-container">
+      <h1 id="gameover-title"></h1>
       <p id="gameover-reason"></p>
       <button id="btn-rematch" class="btn-primary">🔄 Rejouer</button>
     </div>
   </div>
-  
+
   <script src="/socket.io/socket.io.js"></script>
   <script src="js/network.js"></script>
   <script src="js/renderer.js"></script>

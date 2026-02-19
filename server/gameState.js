@@ -1,410 +1,281 @@
-// server/gameState.js
 const CONSTANTS = require('../shared/constants');
-
-let unitIdCounter = 0;
+let uid = 0;
 
 class GameState {
-  constructor(gameId, player1, player2) {
+  constructor(gameId, p1, p2) {
     this.gameId = gameId;
     this.isOver = false;
     this.winner = null;
     this.winReason = null;
     this.loopInterval = null;
     this.gameTime = 0;
-    
-    this.player1 = {
-      id: player1.id,
-      name: player1.name,
-      gold: CONSTANTS.STARTING_GOLD,
-      age: 0,
-      baseHp: CONSTANTS.BASE_HP,
-      baseMaxHp: CONSTANTS.BASE_HP,
+    this.projectiles = [];
+
+    const mk = (p) => ({
+      id: p.id, name: p.name,
+      gold: CONSTANTS.STARTING_GOLD, age: 0,
+      baseHp: CONSTANTS.BASE_HP, baseMaxHp: CONSTANTS.BASE_HP,
       units: [],
-      turrets: [null, null, null], // 3 slots
-      xp: 0,
-      specialCooldown: 0,
-      trainingQueue: []
-    };
-    
-    this.player2 = {
-      id: player2.id,
-      name: player2.name,
-      gold: CONSTANTS.STARTING_GOLD,
-      age: 0,
-      baseHp: CONSTANTS.BASE_HP,
-      baseMaxHp: CONSTANTS.BASE_HP,
-      units: [],
+      turretSlots: [false, false, false],
       turrets: [null, null, null],
-      xp: 0,
-      specialCooldown: 0,
+      xp: 0, specialCooldown: 0,
       trainingQueue: []
-    };
+    });
+    this.player1 = mk(p1);
+    this.player2 = mk(p2);
   }
-  
-  getPlayerNumber(socketId) {
-    if (socketId === this.player1.id) return 1;
-    if (socketId === this.player2.id) return 2;
+
+  getPlayerNumber(sid) {
+    if (sid === this.player1.id) return 1;
+    if (sid === this.player2.id) return 2;
     return null;
   }
-  
-  getPlayer(playerNumber) {
-    return playerNumber === 1 ? this.player1 : this.player2;
-  }
-  
-  getOpponent(playerNumber) {
-    return playerNumber === 1 ? this.player2 : this.player1;
-  }
-  
-  // ===== SPAWN UNIT =====
-  spawnUnit(playerNumber, unitType) {
-    const player = this.getPlayer(playerNumber);
-    const unitDef = CONSTANTS.UNITS[player.age]?.[unitType];
-    
-    if (!unitDef) return false;
-    if (player.gold < unitDef.cost) return false;
-    
-    player.gold -= unitDef.cost;
-    
-    // Ajouter à la queue d'entraînement
-    player.trainingQueue.push({
-      unitType,
-      timeLeft: unitDef.trainTime / 1000,
-      age: player.age
-    });
-    
+  getPlayer(n) { return n === 1 ? this.player1 : this.player2; }
+  getOpponent(n) { return n === 1 ? this.player2 : this.player1; }
+
+  unlockTurretSlot(pn, slot) {
+    const p = this.getPlayer(pn);
+    if (slot < 0 || slot >= 3) return false;
+    if (p.turretSlots[slot]) return false;
+    if (slot > 0 && !p.turretSlots[slot - 1]) return false;
+    const cost = CONSTANTS.TURRET_SLOT_COSTS[slot];
+    if (p.gold < cost) return false;
+    p.gold -= cost;
+    p.turretSlots[slot] = true;
     return true;
   }
-  
-  // ===== BUILD TURRET =====
-  buildTurret(playerNumber, slot) {
-    const player = this.getPlayer(playerNumber);
-    
-    if (slot < 0 || slot >= CONSTANTS.TURRET_SLOTS) return false;
-    if (player.turrets[slot] !== null) return false;
-    
-    const turretDef = CONSTANTS.TURRETS[player.age];
-    if (player.gold < turretDef.cost) return false;
-    
-    player.gold -= turretDef.cost;
-    
-    const baseX = playerNumber === 1 ? CONSTANTS.BASE_POSITIONS.player1 : CONSTANTS.BASE_POSITIONS.player2;
-    const turretOffset = playerNumber === 1 ? 60 + slot * 50 : -60 - slot * 50;
-    
-    player.turrets[slot] = {
-      ...turretDef,
-      currentHp: turretDef.hp,
-      x: baseX + turretOffset,
-      y: CONSTANTS.CANVAS_HEIGHT - 120 - slot * 30,
-      lastFireTime: 0,
-      age: player.age
+
+  buildTurret(pn, slot) {
+    const p = this.getPlayer(pn);
+    if (slot < 0 || slot >= 3) return false;
+    if (!p.turretSlots[slot]) return false;
+    if (p.turrets[slot]) return false;
+    const def = CONSTANTS.TURRETS[p.age];
+    if (p.gold < def.cost) return false;
+    p.gold -= def.cost;
+    const baseX = pn === 1 ? CONSTANTS.BASE_POSITIONS.player1 : CONSTANTS.BASE_POSITIONS.player2;
+    p.turrets[slot] = {
+      ...def, currentHp: def.hp, age: p.age, slot,
+      x: baseX, lastFireTime: 9999
     };
-    
     return true;
   }
-  
-  // ===== UPGRADE AGE =====
-  upgradeAge(playerNumber) {
-    const player = this.getPlayer(playerNumber);
-    const nextAge = player.age + 1;
-    
-    if (nextAge > 4) return false;
-    
-    const cost = CONSTANTS.AGE_UPGRADE_COST[nextAge];
-    if (player.gold < cost) return false;
-    
-    player.gold -= cost;
-    player.age = nextAge;
-    
-    // Augmenter la vie de la base
-    const hpBonus = 500 * nextAge;
-    player.baseMaxHp = CONSTANTS.BASE_HP + hpBonus;
-    player.baseHp = Math.min(player.baseHp + hpBonus / 2, player.baseMaxHp);
-    
+
+  spawnUnit(pn, unitType) {
+    const p = this.getPlayer(pn);
+    const def = CONSTANTS.UNITS[p.age]?.[unitType];
+    if (!def || p.gold < def.cost) return false;
+    p.gold -= def.cost;
+    p.trainingQueue.push({ unitType, timeLeft: def.trainTime / 1000, age: p.age });
     return true;
   }
-  
-  // ===== SPECIAL ATTACK =====
-  specialAttack(playerNumber) {
-    const player = this.getPlayer(playerNumber);
-    const opponent = this.getOpponent(playerNumber);
-    
-    if (player.gold < CONSTANTS.SPECIAL_ATTACK_COST) return false;
-    if (player.specialCooldown > 0) return false;
-    
-    player.gold -= CONSTANTS.SPECIAL_ATTACK_COST;
-    player.specialCooldown = CONSTANTS.SPECIAL_ATTACK_COOLDOWN / 1000;
-    
-    // Dégâts à toutes les unités ennemies
-    const damage = CONSTANTS.SPECIAL_ATTACK_DAMAGE * (1 + player.age * 0.5);
-    opponent.units.forEach(unit => {
-      unit.hp -= damage * 0.5;
-    });
-    
-    // Dégâts à la base ennemie
-    opponent.baseHp -= damage * 0.3;
-    
+
+  upgradeAge(pn) {
+    const p = this.getPlayer(pn);
+    if (p.age >= 4) return false;
+    const cost = CONSTANTS.AGE_UPGRADE_COST[p.age + 1];
+    if (p.gold < cost) return false;
+    p.gold -= cost;
+    p.age++;
+    const bonus = 500 * p.age;
+    p.baseMaxHp = CONSTANTS.BASE_HP + bonus;
+    p.baseHp = Math.min(p.baseHp + bonus / 2, p.baseMaxHp);
     return true;
   }
-  
-  // ===== GAME UPDATE =====
-  update(deltaTime) {
+
+  specialAttack(pn) {
+    const p = this.getPlayer(pn);
+    const o = this.getOpponent(pn);
+    if (p.gold < CONSTANTS.SPECIAL_ATTACK_COST || p.specialCooldown > 0) return false;
+    p.gold -= CONSTANTS.SPECIAL_ATTACK_COST;
+    p.specialCooldown = CONSTANTS.SPECIAL_ATTACK_COOLDOWN / 1000;
+    const dmg = CONSTANTS.SPECIAL_ATTACK_DAMAGE * (1 + p.age * 0.5);
+    o.units.forEach(u => { u.hp -= dmg * 0.5; });
+    o.baseHp -= dmg * 0.3;
+    return true;
+  }
+
+  update(dt) {
     if (this.isOver) return;
-    
-    this.gameTime += deltaTime;
-    
-    // Revenus passifs
-    this.player1.gold += CONSTANTS.PASSIVE_GOLD_RATE * deltaTime;
-    this.player2.gold += CONSTANTS.PASSIVE_GOLD_RATE * deltaTime;
-    
-    // Cooldowns
-    if (this.player1.specialCooldown > 0) this.player1.specialCooldown -= deltaTime;
-    if (this.player2.specialCooldown > 0) this.player2.specialCooldown -= deltaTime;
-    
-    // Training queues
-    this.processTrainingQueue(1, deltaTime);
-    this.processTrainingQueue(2, deltaTime);
-    
-    // Déplacer les unités
+    this.gameTime += dt;
+    this.player1.gold += CONSTANTS.PASSIVE_GOLD_RATE * dt;
+    this.player2.gold += CONSTANTS.PASSIVE_GOLD_RATE * dt;
+    if (this.player1.specialCooldown > 0) this.player1.specialCooldown -= dt;
+    if (this.player2.specialCooldown > 0) this.player2.specialCooldown -= dt;
+
+    this.processQueue(1, dt);
+    this.processQueue(2, dt);
     this.moveUnits(1);
     this.moveUnits(2);
-    
-    // Combat
-    this.processCombat(deltaTime);
-    
-    // Tourelles
-    this.processTurrets(1, deltaTime);
-    this.processTurrets(2, deltaTime);
-    
-    // Attaque de base
-    this.processBaseAttack(1);
-    this.processBaseAttack(2);
-    
-    // Nettoyer les unités mortes
-    this.cleanupDeadUnits(1);
-    this.cleanupDeadUnits(2);
-    
-    // Vérifier victoire
-    this.checkVictory();
+    this.combat(dt);
+    this.turretsFire(1, dt);
+    this.turretsFire(2, dt);
+    this.baseAttack(1, dt);
+    this.baseAttack(2, dt);
+    this.updateProjectiles(dt);
+    this.cleanup(1);
+    this.cleanup(2);
+    this.checkWin();
   }
-  
-  processTrainingQueue(playerNumber, deltaTime) {
-    const player = this.getPlayer(playerNumber);
-    
-    if (player.trainingQueue.length === 0) return;
-    
-    const training = player.trainingQueue[0];
-    training.timeLeft -= deltaTime;
-    
-    if (training.timeLeft <= 0) {
-      player.trainingQueue.shift();
-      
-      // Créer l'unité
-      const unitDef = CONSTANTS.UNITS[training.age]?.[training.unitType];
-      if (unitDef) {
-        const baseX = playerNumber === 1 ? CONSTANTS.BASE_POSITIONS.player1 + 80 : CONSTANTS.BASE_POSITIONS.player2 - 80;
-        
-        player.units.push({
-          id: ++unitIdCounter,
-          type: training.unitType,
-          age: training.age,
-          ...unitDef,
-          hp: unitDef.hp,
-          maxHp: unitDef.hp,
-          x: baseX,
-          y: CONSTANTS.CANVAS_HEIGHT - 80,
-          direction: playerNumber === 1 ? 1 : -1,
-          attacking: false,
-          attackCooldown: 0,
-          target: null
+
+  processQueue(pn, dt) {
+    const p = this.getPlayer(pn);
+    if (!p.trainingQueue.length) return;
+    p.trainingQueue[0].timeLeft -= dt;
+    if (p.trainingQueue[0].timeLeft <= 0) {
+      const t = p.trainingQueue.shift();
+      const def = CONSTANTS.UNITS[t.age]?.[t.unitType];
+      if (def) {
+        const bx = pn === 1 ? CONSTANTS.BASE_POSITIONS.player1 + 60 : CONSTANTS.BASE_POSITIONS.player2 - 60;
+        p.units.push({
+          id: ++uid, type: t.unitType, age: t.age, name: def.name,
+          hp: def.hp, maxHp: def.hp, attack: def.attack,
+          speed: def.speed, range: def.range, cost: def.cost,
+          x: bx, y: CONSTANTS.GROUND_Y,
+          direction: pn === 1 ? 1 : -1,
+          attacking: false, attackCooldown: 0,
+          walkFrame: 0
         });
       }
     }
   }
-  
-  moveUnits(playerNumber) {
-    const player = this.getPlayer(playerNumber);
-    
-    player.units.forEach(unit => {
-      if (!unit.attacking) {
-        unit.x += unit.speed * unit.direction;
+
+  moveUnits(pn) {
+    this.getPlayer(pn).units.forEach(u => {
+      if (!u.attacking) {
+        u.x += u.speed * u.direction;
+        u.walkFrame = (u.walkFrame || 0) + 0.1;
       }
     });
   }
-  
-  processCombat(deltaTime) {
-    // Unités du joueur 1 vs joueur 2
-    this.player1.units.forEach(unit1 => {
-      unit1.attacking = false;
-      unit1.attackCooldown = Math.max(0, (unit1.attackCooldown || 0) - deltaTime);
-      
-      // Chercher la cible la plus proche
-      let closestEnemy = null;
-      let closestDist = Infinity;
-      
-      this.player2.units.forEach(unit2 => {
-        const dist = Math.abs(unit1.x - unit2.x);
-        if (dist < closestDist) {
-          closestDist = dist;
-          closestEnemy = unit2;
-        }
+
+  combat(dt) {
+    this._fight(this.player1, this.player2, dt, 1);
+    this._fight(this.player2, this.player1, dt, 2);
+  }
+
+  _fight(atk, def, dt, atkPn) {
+    atk.units.forEach(u => {
+      u.attacking = false;
+      u.attackCooldown = Math.max(0, (u.attackCooldown || 0) - dt);
+      let closest = null, minD = Infinity;
+      def.units.forEach(e => {
+        const d = Math.abs(u.x - e.x);
+        if (d < minD) { minD = d; closest = e; }
       });
-      
-      if (closestEnemy && closestDist <= unit1.range) {
-        unit1.attacking = true;
-        if (unit1.attackCooldown <= 0) {
-          closestEnemy.hp -= unit1.attack;
-          unit1.attackCooldown = 1; // 1 seconde entre chaque attaque
-          
-          if (closestEnemy.hp <= 0) {
-            this.player1.gold += closestEnemy.cost * CONSTANTS.GOLD_PER_KILL_MULTIPLIER;
-            this.player1.xp += closestEnemy.cost;
+      if (closest && minD <= u.range) {
+        u.attacking = true;
+        if (u.attackCooldown <= 0) {
+          closest.hp -= u.attack;
+          u.attackCooldown = 1;
+          if (u.range > 50) {
+            this.projectiles.push({
+              x: u.x, y: CONSTANTS.GROUND_Y - 20,
+              tx: closest.x, ty: CONSTANTS.GROUND_Y - 15,
+              speed: 8, owner: atkPn, age: u.age
+            });
           }
-        }
-      }
-    });
-    
-    // Unités du joueur 2 vs joueur 1 (même logique)
-    this.player2.units.forEach(unit2 => {
-      unit2.attacking = false;
-      unit2.attackCooldown = Math.max(0, (unit2.attackCooldown || 0) - deltaTime);
-      
-      let closestEnemy = null;
-      let closestDist = Infinity;
-      
-      this.player1.units.forEach(unit1 => {
-        const dist = Math.abs(unit2.x - unit1.x);
-        if (dist < closestDist) {
-          closestDist = dist;
-          closestEnemy = unit1;
-        }
-      });
-      
-      if (closestEnemy && closestDist <= unit2.range) {
-        unit2.attacking = true;
-        if (unit2.attackCooldown <= 0) {
-          closestEnemy.hp -= unit2.attack;
-          unit2.attackCooldown = 1;
-          
-          if (closestEnemy.hp <= 0) {
-            this.player2.gold += closestEnemy.cost * CONSTANTS.GOLD_PER_KILL_MULTIPLIER;
-            this.player2.xp += closestEnemy.cost;
+          if (closest.hp <= 0) {
+            atk.gold += closest.cost * CONSTANTS.GOLD_PER_KILL_MULTIPLIER;
+            atk.xp += closest.cost;
           }
         }
       }
     });
   }
-  
-  processTurrets(playerNumber, deltaTime) {
-    const player = this.getPlayer(playerNumber);
-    const opponent = this.getOpponent(playerNumber);
-    
-    player.turrets.forEach(turret => {
-      if (!turret) return;
-      
-      turret.lastFireTime = (turret.lastFireTime || 0) + deltaTime * 1000;
-      
-      // Chercher une cible
-      let target = null;
-      let minDist = Infinity;
-      
-      opponent.units.forEach(unit => {
-        const dist = Math.abs(turret.x - unit.x);
-        if (dist <= turret.range && dist < minDist) {
-          minDist = dist;
-          target = unit;
-        }
+
+  turretsFire(pn, dt) {
+    const p = this.getPlayer(pn);
+    const o = this.getOpponent(pn);
+    p.turrets.forEach((t, i) => {
+      if (!t) return;
+      t.lastFireTime += dt * 1000;
+      let target = null, minD = Infinity;
+      o.units.forEach(u => {
+        const d = Math.abs(t.x - u.x);
+        if (d <= t.range && d < minD) { minD = d; target = u; }
       });
-      
-      if (target && turret.lastFireTime >= turret.fireRate) {
-        target.hp -= turret.attack;
-        turret.lastFireTime = 0;
-        
+      if (target && t.lastFireTime >= t.fireRate) {
+        target.hp -= t.attack;
+        t.lastFireTime = 0;
+        const ty = CONSTANTS.GROUND_Y - 100 - i * 30;
+        this.projectiles.push({
+          x: t.x, y: ty,
+          tx: target.x, ty: CONSTANTS.GROUND_Y - 15,
+          speed: 6, owner: pn, age: t.age
+        });
         if (target.hp <= 0) {
-          player.gold += target.cost * CONSTANTS.GOLD_PER_KILL_MULTIPLIER * 0.5;
+          p.gold += target.cost * CONSTANTS.GOLD_PER_KILL_MULTIPLIER * 0.5;
         }
       }
     });
   }
-  
-  processBaseAttack(playerNumber) {
-    const opponent = this.getOpponent(playerNumber);
-    const player = this.getPlayer(playerNumber);
-    
-    const baseX = playerNumber === 1 ? CONSTANTS.BASE_POSITIONS.player1 : CONSTANTS.BASE_POSITIONS.player2;
-    
-    // Les unités ennemies attaquent la base
-    opponent.units.forEach(unit => {
-      const dist = Math.abs(unit.x - baseX);
-      if (dist <= unit.range) {
-        unit.attacking = true;
-        if (unit.attackCooldown <= 0) {
-          player.baseHp -= unit.attack;
-          unit.attackCooldown = 1;
+
+  baseAttack(pn, dt) {
+    const p = this.getPlayer(pn);
+    const o = this.getOpponent(pn);
+    const bx = pn === 1 ? CONSTANTS.BASE_POSITIONS.player1 : CONSTANTS.BASE_POSITIONS.player2;
+    o.units.forEach(u => {
+      if (Math.abs(u.x - bx) <= u.range + 30) {
+        u.attacking = true;
+        if (u.attackCooldown <= 0) {
+          p.baseHp -= u.attack;
+          u.attackCooldown = 1;
         }
       }
     });
   }
-  
-  cleanupDeadUnits(playerNumber) {
-    const player = this.getPlayer(playerNumber);
-    player.units = player.units.filter(unit => unit.hp > 0);
+
+  updateProjectiles(dt) {
+    this.projectiles = this.projectiles.filter(p => {
+      const dx = p.tx - p.x;
+      const dy = p.ty - p.y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      if (dist < 5) return false;
+      p.x += (dx / dist) * p.speed;
+      p.y += (dy / dist) * p.speed;
+      return true;
+    });
   }
-  
-  checkVictory() {
+
+  cleanup(pn) {
+    this.getPlayer(pn).units = this.getPlayer(pn).units.filter(u => u.hp > 0);
+  }
+
+  checkWin() {
     if (this.player1.baseHp <= 0) {
-      this.isOver = true;
-      this.winner = 2;
-      this.winReason = 'Base détruite';
+      this.isOver = true; this.winner = 2; this.winReason = 'Base detruite';
     } else if (this.player2.baseHp <= 0) {
-      this.isOver = true;
-      this.winner = 1;
-      this.winReason = 'Base détruite';
+      this.isOver = true; this.winner = 1; this.winReason = 'Base detruite';
     }
   }
-  
-  getSerializedState() {
+
+  serialize() {
+    const s = (p) => ({
+      name: p.name, gold: Math.floor(p.gold), age: p.age,
+      baseHp: Math.floor(Math.max(0, p.baseHp)), baseMaxHp: p.baseMaxHp,
+      xp: Math.floor(p.xp),
+      specialCooldown: Math.max(0, Math.ceil(p.specialCooldown)),
+      turretSlots: p.turretSlots,
+      turrets: p.turrets,
+      units: p.units.map(u => ({
+        id: u.id, type: u.type, age: u.age, name: u.name,
+        hp: Math.floor(u.hp), maxHp: u.maxHp,
+        x: Math.round(u.x), y: u.y,
+        direction: u.direction, attacking: u.attacking,
+        walkFrame: u.walkFrame || 0
+      })),
+      trainingQueue: p.trainingQueue.map(t => ({
+        unitType: t.unitType, timeLeft: Math.max(0, +t.timeLeft.toFixed(1))
+      }))
+    });
     return {
       gameTime: Math.floor(this.gameTime),
-      player1: {
-        name: this.player1.name,
-        gold: Math.floor(this.player1.gold),
-        age: this.player1.age,
-        baseHp: Math.floor(this.player1.baseHp),
-        baseMaxHp: this.player1.baseMaxHp,
-        units: this.player1.units.map(u => ({
-          id: u.id, type: u.type, age: u.age, name: u.name,
-          hp: Math.floor(u.hp), maxHp: u.maxHp,
-          x: Math.floor(u.x), y: u.y,
-          attacking: u.attacking, direction: u.direction
-        })),
-        turrets: this.player1.turrets,
-        xp: Math.floor(this.player1.xp),
-        specialCooldown: Math.max(0, Math.floor(this.player1.specialCooldown)),
-        trainingQueue: this.player1.trainingQueue.map(t => ({
-          unitType: t.unitType,
-          timeLeft: Math.max(0, t.timeLeft.toFixed(1))
-        }))
-      },
-      player2: {
-        name: this.player2.name,
-        gold: Math.floor(this.player2.gold),
-        age: this.player2.age,
-        baseHp: Math.floor(this.player2.baseHp),
-        baseMaxHp: this.player2.baseMaxHp,
-        units: this.player2.units.map(u => ({
-          id: u.id, type: u.type, age: u.age, name: u.name,
-          hp: Math.floor(u.hp), maxHp: u.maxHp,
-          x: Math.floor(u.x), y: u.y,
-          attacking: u.attacking, direction: u.direction
-        })),
-        turrets: this.player2.turrets,
-        xp: Math.floor(this.player2.xp),
-        specialCooldown: Math.max(0, Math.floor(this.player2.specialCooldown)),
-        trainingQueue: this.player2.trainingQueue.map(t => ({
-          unitType: t.unitType,
-          timeLeft: Math.max(0, t.timeLeft.toFixed(1))
-        }))
-      }
+      player1: s(this.player1),
+      player2: s(this.player2),
+      projectiles: this.projectiles.map(p => ({
+        x: Math.round(p.x), y: Math.round(p.y), owner: p.owner, age: p.age
+      }))
     };
   }
 }

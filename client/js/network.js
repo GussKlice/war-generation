@@ -1,35 +1,14 @@
-// client/js/network.js
 class Network {
   constructor() {
     this.socket = io();
-    this.callbacks = {};
   }
-  
-  on(event, callback) {
-    this.socket.on(event, callback);
-  }
-  
-  emit(event, data) {
-    this.socket.emit(event, data);
-  }
-  
-  findGame(playerName) {
-    this.socket.emit('find_game', { playerName });
-  }
-  
-  spawnUnit(unitType) {
-    this.socket.emit('spawn_unit', { unitType });
-  }
-  
-  buildTurret(slot) {
-    this.socket.emit('build_turret', { slot });
-  }
-  
-  upgradeAge() {
-    this.socket.emit('upgrade_age');
-  }
-  
-  specialAttack() {
-    this.socket.emit('special_attack');
-  }
+  on(e, cb) { this.socket.on(e, cb); }
+  emit(e, d) { this.socket.emit(e, d); }
+  findGame(name) { this.emit('find_game', { playerName: name }); }
+  playSolo(name, difficulty) { this.emit('play_solo', { playerName: name, difficulty: difficulty }); }
+  spawnUnit(t) { this.emit('spawn_unit', { unitType: t }); }
+  buildTurret(s) { this.emit('build_turret', { slot: s }); }
+  unlockTurretSlot(s) { this.emit('unlock_turret_slot', { slot: s }); }
+  upgradeAge() { this.emit('upgrade_age'); }
+  specialAttack() { this.emit('special_attack'); }
 }

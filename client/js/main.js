@@ -1,167 +1,110 @@
-// client/js/main.js
 (function () {
-  'use strict';
+  var network = new Network();
+  var canvas = document.getElementById('game-canvas');
+  var renderer = new Renderer(canvas);
+  var ui = new UI();
+  var game = null;
 
-  // ===== INITIALISATION =====
-  const network = new Network();
-  const canvas = document.getElementById('game-canvas');
-  const renderer = new Renderer(canvas);
-  const ui = new UI();
-  let game = null;
-
-  // ===== MENU - CHERCHER UNE PARTIE =====
-  document.getElementById('btn-play').addEventListener('click', () => {
-    const name = document.getElementById('player-name').value.trim() || 'Anonymous';
+  // ===== MENU =====
+  document.getElementById('btn-play').addEventListener('click', function () {
+    var name = document.getElementById('player-name').value.trim() || 'Anonyme';
     network.findGame(name);
     ui.showQueue();
   });
 
-  // Appuyer sur Entrée pour lancer
-  document.getElementById('player-name').addEventListener('keypress', (e) => {
-    if (e.key === 'Enter') {
-      document.getElementById('btn-play').click();
-    }
+  document.getElementById('player-name').addEventListener('keypress', function (e) {
+    if (e.key === 'Enter') document.getElementById('btn-play').click();
   });
 
-  // ===== ÉVÉNEMENTS RÉSEAU =====
-
-  // En file d'attente
-  network.on('queue_joined', (data) => {
-    console.log(`📋 En attente... Position: ${data.position}`);
+  // ===== SOLO vs IA =====
+  document.querySelectorAll('.btn-diff').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var name = document.getElementById('player-name').value.trim() || 'Joueur';
+      var diff = btn.getAttribute('data-diff');
+      network.playSolo(name, diff);
+    });
   });
 
-  // Partie trouvée !
-  network.on('game_start', (data) => {
-    console.log(`🎮 Partie trouvée ! ID: ${data.gameId}`);
+  // ===== EVENTS RESEAU =====
+  network.on('queue_joined', function () { });
+
+  network.on('game_start', function (data) {
     ui.hideQueue();
-    
     game = new Game(network, renderer, ui);
     game.start(data.playerNumber, data.opponent);
   });
 
-  // Mise à jour de l'état
-  network.on('game_state', (state) => {
-    if (game) {
-      game.onGameState(state);
-    }
+  network.on('game_state', function (state) {
+    if (game) game.onState(state);
   });
 
-  // Fin de partie
-  network.on('game_over', (data) => {
-    console.log(`🏁 Partie terminée ! Gagnant: Joueur ${data.winner}`);
-    if (game) {
-      game.onGameOver(data);
-    }
+  network.on('game_over', function (data) {
+    if (game) game.onGameOver(data);
   });
 
-  // ===== CONTRÔLES - BOUTONS =====
-
-  // Unités
-  document.getElementById('btn-melee').addEventListener('click', () => {
+  // ===== BOUTONS UNITES =====
+  document.getElementById('btn-melee').addEventListener('click', function () {
     if (game) game.spawnUnit('MELEE');
   });
-
-  document.getElementById('btn-ranged').addEventListener('click', () => {
+  document.getElementById('btn-ranged').addEventListener('click', function () {
     if (game) game.spawnUnit('RANGED');
   });
-
-  document.getElementById('btn-tank').addEventListener('click', () => {
+  document.getElementById('btn-tank').addEventListener('click', function () {
     if (game) game.spawnUnit('TANK');
   });
 
-  // Tourelles
-  document.getElementById('btn-turret-0').addEventListener('click', () => {
-    if (game) game.buildTurret(0);
-  });
+  // ===== BOUTONS TOURELLES (slot unlock OU build) =====
+  function handleTurretClick(slot) {
+    if (!game || !game.state) return;
+    var me = game.myPn === 1 ? game.state.player1 : game.state.player2;
+    if (!me.turretSlots[slot]) {
+      game.unlockSlot(slot);
+    } else if (!me.turrets[slot]) {
+      game.buildTurret(slot);
+    }
+  }
 
-  document.getElementById('btn-turret-1').addEventListener('click', () => {
-    if (game) game.buildTurret(1);
-  });
+  document.getElementById('btn-turret-0').addEventListener('click', function () { handleTurretClick(0); });
+  document.getElementById('btn-turret-1').addEventListener('click', function () { handleTurretClick(1); });
+  document.getElementById('btn-turret-2').addEventListener('click', function () { handleTurretClick(2); });
 
-  document.getElementById('btn-turret-2').addEventListener('click', () => {
-    if (game) game.buildTurret(2);
-  });
-
-  // Évolution & Spécial
-  document.getElementById('btn-upgrade-age').addEventListener('click', () => {
+  // ===== BOUTONS SPECIAUX =====
+  document.getElementById('btn-upgrade-age').addEventListener('click', function () {
     if (game) game.upgradeAge();
   });
-
-  document.getElementById('btn-special').addEventListener('click', () => {
+  document.getElementById('btn-special').addEventListener('click', function () {
     if (game) game.specialAttack();
   });
 
-  // Rejouer
-  document.getElementById('btn-rematch').addEventListener('click', () => {
+  // ===== REJOUER =====
+  document.getElementById('btn-rematch').addEventListener('click', function () {
     if (game) game.destroy();
     game = null;
     ui.showScreen('menu');
     ui.hideQueue();
   });
 
-  // ===== CONTRÔLES - CLAVIER =====
-  document.addEventListener('keydown', (e) => {
+  // ===== CLAVIER =====
+  document.addEventListener('keydown', function (e) {
     if (!game || !game.isRunning) return;
-
     switch (e.key) {
-      // Unités
-      case '1':
-      case '&': // clavier FR
-        game.spawnUnit('MELEE');
-        break;
-      case '2':
-      case 'é':
-        game.spawnUnit('RANGED');
-        break;
-      case '3':
-      case '"':
-        game.spawnUnit('TANK');
-        break;
-
-      // Tourelles
-      case 'q':
-      case 'Q':
-      case 'a': // QWERTY
-      case 'A':
-        game.buildTurret(0);
-        break;
-      case 'w':
-      case 'W':
-      case 'z': // AZERTY
-      case 'Z':
-        game.buildTurret(1);
-        break;
-      case 'e':
-      case 'E':
-        game.buildTurret(2);
-        break;
-
-      // Évolution
-      case 'r':
-      case 'R':
-        game.upgradeAge();
-        break;
-
-      // Attaque spéciale
-      case 'f':
-      case 'F':
-        game.specialAttack();
-        break;
+      case '1': case '&': game.spawnUnit('MELEE'); break;
+      case '2': case 'é': game.spawnUnit('RANGED'); break;
+      case '3': case '"': game.spawnUnit('TANK'); break;
+      case 'q': case 'Q': case 'a': case 'A': handleTurretClick(0); break;
+      case 'w': case 'W': case 'z': case 'Z': handleTurretClick(1); break;
+      case 'e': case 'E': handleTurretClick(2); break;
+      case 'r': case 'R': game.upgradeAge(); break;
+      case 'f': case 'F': game.specialAttack(); break;
     }
   });
 
-  // ===== GESTION DU REDIMENSIONNEMENT =====
-  function resizeCanvas() {
-    const container = canvas.parentElement;
-    const maxWidth = Math.min(1200, window.innerWidth - 20);
-    const ratio = 400 / 1200;
-    
-    canvas.style.width = `${maxWidth}px`;
-    canvas.style.height = `${maxWidth * ratio}px`;
+  // ===== RESIZE =====
+  function resize() {
+    var maxW = Math.min(1200, window.innerWidth - 10);
+    canvas.style.width = maxW + 'px';
+    canvas.style.height = (maxW * 500 / 1200) + 'px';
   }
-
-  window.addEventListener('resize', resizeCanvas);
-  resizeCanvas();
-
-  console.log('⚔️ Wargeneration chargé !');
+  window.addEventListener('resize', resize);
+  resize();
 })();

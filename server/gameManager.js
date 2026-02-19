@@ -1,177 +1,146 @@
-// server/gameManager.js
 const GameState = require('./gameState');
+const AI = require('./ai');
 const CONSTANTS = require('../shared/constants');
 
 class GameManager {
   constructor(io) {
     this.io = io;
     this.queue = [];
-    this.games = new Map(); // gameId -> GameState
-    this.playerGameMap = new Map(); // socketId -> gameId
+    this.games = new Map();
+    this.playerGameMap = new Map();
   }
-  
+
   addToQueue(socket, playerName) {
-    // Vérifier si déjà dans la queue
     if (this.queue.find(p => p.socket.id === socket.id)) return;
-    
-    this.queue.push({ socket, playerName: playerName || 'Anonymous' });
+    this.queue.push({ socket, playerName: playerName || 'Anonyme' });
     socket.emit('queue_joined', { position: this.queue.length });
-    
-    console.log(`📋 File d'attente: ${this.queue.length} joueur(s)`);
-    
-    // Essayer de créer une partie
-    if (this.queue.length >= 2) {
-      this.createGame();
-    }
+    if (this.queue.length >= 2) this.createGame();
   }
-  
+
   createGame() {
-    const player1 = this.queue.shift();
-    const player2 = this.queue.shift();
-    
-    const gameId = `game_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-    
-    // Créer la room
-    player1.socket.join(gameId);
-    player2.socket.join(gameId);
-    
-    // Créer l'état du jeu
-    const gameState = new GameState(gameId, {
-      id: player1.socket.id,
-      name: player1.playerName
-    }, {
-      id: player2.socket.id,
-      name: player2.playerName
-    });
-    
-    this.games.set(gameId, gameState);
-    this.playerGameMap.set(player1.socket.id, gameId);
-    this.playerGameMap.set(player2.socket.id, gameId);
-    
-    // Notifier les joueurs
-    player1.socket.emit('game_start', {
-      gameId,
-      playerNumber: 1,
-      opponent: player2.playerName
-    });
-    
-    player2.socket.emit('game_start', {
-      gameId,
-      playerNumber: 2,
-      opponent: player1.playerName
-    });
-    
-    console.log(`🎮 Partie créée: ${gameId} | ${player1.playerName} vs ${player2.playerName}`);
-    
-    // Démarrer la boucle de jeu
-    this.startGameLoop(gameId);
+    const p1 = this.queue.shift();
+    const p2 = this.queue.shift();
+    const gameId = 'g_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5);
+    p1.socket.join(gameId);
+    p2.socket.join(gameId);
+
+    const gs = new GameState(gameId,
+      { id: p1.socket.id, name: p1.playerName },
+      { id: p2.socket.id, name: p2.playerName }
+    );
+    this.games.set(gameId, gs);
+    this.playerGameMap.set(p1.socket.id, gameId);
+    this.playerGameMap.set(p2.socket.id, gameId);
+
+    p1.socket.emit('game_start', { gameId, playerNumber: 1, opponent: p2.playerName });
+    p2.socket.emit('game_start', { gameId, playerNumber: 2, opponent: p1.playerName });
+    this.startLoop(gameId);
   }
-  
-  startGameLoop(gameId) {
-    const intervalMs = 1000 / CONSTANTS.TICK_RATE;
-    
+
+  // ===== SOLO vs IA =====
+  createSoloGame(socket, playerName, difficulty) {
+    const gameId = 'solo_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5);
+    socket.join(gameId);
+
+    const gs = new GameState(gameId,
+      { id: socket.id, name: playerName || 'Joueur' },
+      { id: 'AI', name: 'IA (' + difficulty + ')' }
+    );
+    const ai = new AI(difficulty);
+    gs._ai = ai;
+    gs._aiPlayerNumber = 2;
+    gs._isSolo = true;
+
+    this.games.set(gameId, gs);
+    this.playerGameMap.set(socket.id, gameId);
+
+    socket.emit('game_start', { gameId, playerNumber: 1, opponent: 'IA (' + difficulty + ')' });
+    this.startLoop(gameId);
+  }
+
+  startLoop(gameId) {
+    const ms = 1000 / CONSTANTS.TICK_RATE;
     const loop = setInterval(() => {
-      const game = this.games.get(gameId);
-      if (!game || game.isOver) {
-        clearInterval(loop);
-        return;
-      }
-      
-      // Mettre à jour l'état du jeu
-      game.update(intervalMs / 1000);
-      
-      // Envoyer l'état aux joueurs
-      const state = game.getSerializedState();
-      this.io.to(gameId).emit('game_state', state);
-      
-      // Vérifier fin de partie
-      if (game.isOver) {
-        this.io.to(gameId).emit('game_over', {
-          winner: game.winner,
-          reason: game.winReason
+      const gs = this.games.get(gameId);
+      if (!gs || gs.isOver) { clearInterval(loop); return; }
+
+      // IA
+      if (gs._isSolo && gs._ai) {
+        const actions = gs._ai.update(ms / 1000, gs, gs._aiPlayerNumber);
+        actions.forEach(a => {
+          if (a.type === 'spawn_unit') gs.spawnUnit(gs._aiPlayerNumber, a.unitType);
+          else if (a.type === 'build_turret') gs.buildTurret(gs._aiPlayerNumber, a.slot);
+          else if (a.type === 'unlock_turret_slot') gs.unlockTurretSlot(gs._aiPlayerNumber, a.slot);
+          else if (a.type === 'upgrade_age') gs.upgradeAge(gs._aiPlayerNumber);
+          else if (a.type === 'special_attack') gs.specialAttack(gs._aiPlayerNumber);
         });
+      }
+
+      gs.update(ms / 1000);
+      this.io.to(gameId).emit('game_state', gs.serialize());
+
+      if (gs.isOver) {
+        this.io.to(gameId).emit('game_over', { winner: gs.winner, reason: gs.winReason });
         this.cleanupGame(gameId);
       }
-    }, intervalMs);
-    
-    const game = this.games.get(gameId);
-    if (game) game.loopInterval = loop;
+    }, ms);
+
+    const gs = this.games.get(gameId);
+    if (gs) gs.loopInterval = loop;
   }
-  
+
+  // ===== ACTIONS =====
+  _getGame(socket) {
+    const gid = this.playerGameMap.get(socket.id);
+    if (!gid) return null;
+    const gs = this.games.get(gid);
+    if (!gs) return null;
+    return { gs, pn: gs.getPlayerNumber(socket.id) };
+  }
+
   handleSpawnUnit(socket, data) {
-    const gameId = this.playerGameMap.get(socket.id);
-    if (!gameId) return;
-    
-    const game = this.games.get(gameId);
-    if (!game) return;
-    
-    const playerNumber = game.getPlayerNumber(socket.id);
-    game.spawnUnit(playerNumber, data.unitType);
+    const g = this._getGame(socket);
+    if (g) g.gs.spawnUnit(g.pn, data.unitType);
   }
-  
   handleBuildTurret(socket, data) {
-    const gameId = this.playerGameMap.get(socket.id);
-    if (!gameId) return;
-    
-    const game = this.games.get(gameId);
-    if (!game) return;
-    
-    const playerNumber = game.getPlayerNumber(socket.id);
-    game.buildTurret(playerNumber, data.slot);
+    const g = this._getGame(socket);
+    if (g) g.gs.buildTurret(g.pn, data.slot);
   }
-  
+  handleUnlockTurretSlot(socket, data) {
+    const g = this._getGame(socket);
+    if (g) g.gs.unlockTurretSlot(g.pn, data.slot);
+  }
   handleUpgradeAge(socket) {
-    const gameId = this.playerGameMap.get(socket.id);
-    if (!gameId) return;
-    
-    const game = this.games.get(gameId);
-    if (!game) return;
-    
-    const playerNumber = game.getPlayerNumber(socket.id);
-    game.upgradeAge(playerNumber);
+    const g = this._getGame(socket);
+    if (g) g.gs.upgradeAge(g.pn);
   }
-  
   handleSpecialAttack(socket) {
-    const gameId = this.playerGameMap.get(socket.id);
-    if (!gameId) return;
-    
-    const game = this.games.get(gameId);
-    if (!game) return;
-    
-    const playerNumber = game.getPlayerNumber(socket.id);
-    game.specialAttack(playerNumber);
+    const g = this._getGame(socket);
+    if (g) g.gs.specialAttack(g.pn);
   }
-  
+
   handleDisconnect(socket) {
-    // Retirer de la queue
     this.queue = this.queue.filter(p => p.socket.id !== socket.id);
-    
-    // Gérer la déconnexion en jeu
-    const gameId = this.playerGameMap.get(socket.id);
-    if (gameId) {
-      const game = this.games.get(gameId);
-      if (game && !game.isOver) {
-        game.isOver = true;
-        game.winner = game.getPlayerNumber(socket.id) === 1 ? 2 : 1;
-        game.winReason = 'disconnect';
-        
-        this.io.to(gameId).emit('game_over', {
-          winner: game.winner,
-          reason: 'Adversaire déconnecté'
-        });
-        
-        this.cleanupGame(gameId);
+    const gid = this.playerGameMap.get(socket.id);
+    if (gid) {
+      const gs = this.games.get(gid);
+      if (gs && !gs.isOver) {
+        gs.isOver = true;
+        gs.winner = gs.getPlayerNumber(socket.id) === 1 ? 2 : 1;
+        gs.winReason = 'Adversaire deconnecte';
+        this.io.to(gid).emit('game_over', { winner: gs.winner, reason: gs.winReason });
+        this.cleanupGame(gid);
       }
     }
   }
-  
-  cleanupGame(gameId) {
-    const game = this.games.get(gameId);
-    if (game) {
-      if (game.loopInterval) clearInterval(game.loopInterval);
-      this.playerGameMap.delete(game.player1.id);
-      this.playerGameMap.delete(game.player2.id);
-      this.games.delete(gameId);
+
+  cleanupGame(gid) {
+    const gs = this.games.get(gid);
+    if (gs) {
+      if (gs.loopInterval) clearInterval(gs.loopInterval);
+      this.playerGameMap.delete(gs.player1.id);
+      this.playerGameMap.delete(gs.player2.id);
+      this.games.delete(gid);
     }
   }
 }

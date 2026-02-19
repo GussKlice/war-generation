@@ -1,107 +1,69 @@
-// client/js/game.js
 class Game {
   constructor(network, renderer, ui) {
     this.network = network;
     this.renderer = renderer;
     this.ui = ui;
-
-    this.myPlayerNumber = null;
-    this.gameState = null;
+    this.myPn = null;
+    this.state = null;
     this.isRunning = false;
-    this.animationFrameId = null;
-
-    // Stocker les unités précédentes pour détecter les morts (particules)
-    this.prevUnitsP1 = new Set();
-    this.prevUnitsP2 = new Set();
+    this.rafId = null;
   }
 
-  // ===== INITIALISER UNE PARTIE =====
-  start(playerNumber, opponentName) {
-    this.myPlayerNumber = playerNumber;
+  start(playerNumber, opponent) {
+    this.myPn = playerNumber;
     this.isRunning = true;
     this.ui.showScreen('game');
-    this.gameLoop();
-    
-    console.log(`🎮 Partie lancée ! Je suis le joueur ${playerNumber} contre ${opponentName}`);
+    this.loop();
   }
 
-  // ===== BOUCLE DE RENDU (côté client) =====
-  gameLoop() {
+  loop() {
     if (!this.isRunning) return;
-
-    this.renderer.render(this.gameState, this.myPlayerNumber);
-    this.animationFrameId = requestAnimationFrame(() => this.gameLoop());
+    this.renderer.render(this.state, this.myPn);
+    this.rafId = requestAnimationFrame(this.loop.bind(this));
   }
 
-  // ===== RECEVOIR L'ÉTAT DU SERVEUR =====
-  onGameState(state) {
-    // Détecter les unités mortes pour les particules
+  onState(state) {
     this.detectDeaths(state);
-    this.gameState = state;
-    this.ui.updateHUD(state, this.myPlayerNumber);
+    this.state = state;
+    this.ui.updateHUD(state, this.myPn);
   }
 
-  // ===== DÉTECTER LES MORTS POUR EFFETS VISUELS =====
   detectDeaths(newState) {
-    if (!this.gameState) return;
+    if (!this.state) return;
+    var oldP1 = {};
+    var oldP2 = {};
+    this.state.player1.units.forEach(function (u) { oldP1[u.id] = u; });
+    this.state.player2.units.forEach(function (u) { oldP2[u.id] = u; });
+    var newP1 = {};
+    var newP2 = {};
+    newState.player1.units.forEach(function (u) { newP1[u.id] = true; });
+    newState.player2.units.forEach(function (u) { newP2[u.id] = true; });
 
-    const oldP1Ids = new Set(this.gameState.player1.units.map(u => u.id));
-    const newP1Ids = new Set(newState.player1.units.map(u => u.id));
-    const oldP2Ids = new Set(this.gameState.player2.units.map(u => u.id));
-    const newP2Ids = new Set(newState.player2.units.map(u => u.id));
-
-    // Unités P1 mortes
-    this.gameState.player1.units.forEach(u => {
-      if (!newP1Ids.has(u.id)) {
-        this.renderer.addParticle(u.x, 240, '#e74c3c', 8);
-      }
+    var self = this;
+    Object.keys(oldP1).forEach(function (id) {
+      if (!newP1[id]) self.renderer.addParticle(oldP1[id].x, 388, '#e74c3c', 10);
     });
-
-    // Unités P2 mortes
-    this.gameState.player2.units.forEach(u => {
-      if (!newP2Ids.has(u.id)) {
-        this.renderer.addParticle(u.x, 240, '#3498db', 8);
-      }
+    Object.keys(oldP2).forEach(function (id) {
+      if (!newP2[id]) self.renderer.addParticle(oldP2[id].x, 388, '#3498db', 10);
     });
   }
 
-  // ===== ACTIONS DU JOUEUR =====
-  spawnUnit(type) {
-    if (!this.isRunning) return;
-    this.network.spawnUnit(type);
-  }
+  spawnUnit(t) { if (this.isRunning) this.network.spawnUnit(t); }
+  buildTurret(s) { if (this.isRunning) this.network.buildTurret(s); }
+  unlockSlot(s) { if (this.isRunning) this.network.unlockTurretSlot(s); }
+  upgradeAge() { if (this.isRunning) this.network.upgradeAge(); }
+  specialAttack() { if (this.isRunning) this.network.specialAttack(); }
 
-  buildTurret(slot) {
-    if (!this.isRunning) return;
-    this.network.buildTurret(slot);
-  }
-
-  upgradeAge() {
-    if (!this.isRunning) return;
-    this.network.upgradeAge();
-  }
-
-  specialAttack() {
-    if (!this.isRunning) return;
-    this.network.specialAttack();
-  }
-
-  // ===== FIN DE PARTIE =====
   onGameOver(data) {
     this.isRunning = false;
-    if (this.animationFrameId) {
-      cancelAnimationFrame(this.animationFrameId);
-    }
-    this.ui.showGameOver(data.winner, this.myPlayerNumber, data.reason);
+    if (this.rafId) cancelAnimationFrame(this.rafId);
+    this.ui.showGameOver(data.winner, this.myPn, data.reason);
   }
 
-  // ===== NETTOYAGE =====
   destroy() {
     this.isRunning = false;
-    if (this.animationFrameId) {
-      cancelAnimationFrame(this.animationFrameId);
-    }
-    this.gameState = null;
-    this.myPlayerNumber = null;
+    if (this.rafId) cancelAnimationFrame(this.rafId);
+    this.state = null;
+    this.myPn = null;
   }
 }
